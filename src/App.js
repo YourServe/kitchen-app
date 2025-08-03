@@ -236,7 +236,7 @@ const FoodCategory = ({ title, items, foodOrder, teamSize, onUpdateFood }) => {
             <div className="space-y-2">
                 {Object.entries(items).map(([key, name]) => {
                     const count = foodOrder?.[key] || 0;
-                    return (<div key={key} className="flex justify-between items-center bg-gray-800 p-2 rounded-lg"><span className="text-white">{name}</span><div className="flex items-center gap-3"><button onClick={() => onUpdateFood(key, count, 'remove')} className="w-8 h-8 flex items-center justify-center bg-transparent border border-white rounded-md text-xl font-bold hover:bg-gray-700">-</button><span className="text-2xl font-bold text-white w-8 text-center">{count}</span><button onClick={() => onUpdateFood(key, count, 'add')} className="w-8 h-8 flex items-center justify-center bg-transparent border border-white rounded-md text-xl font-bold hover:bg-gray-700">+</button></div></div>);
+                    return (<div key={key} className="flex justify-between items-center bg-gray-800 p-2 rounded-lg"><span className="text-white">{name}</span><div className="flex items-center gap-3"><button onClick={() => onUpdateFood(key, count, 'remove')} className="w-8 h-8 flex items-center justify-center bg-transparent border border-white rounded-full text-xl font-bold hover:bg-gray-700">-</button><span className="text-2xl font-bold text-white w-8 text-center">{count}</span><button onClick={() => onUpdateFood(key, count, 'add')} className="w-8 h-8 flex items-center justify-center bg-transparent border border-white rounded-full text-xl font-bold hover:bg-gray-700">+</button></div></div>);
                 })}
             </div>
         </div>
