@@ -6,25 +6,6 @@ import { getFirestore, collection, doc, onSnapshot, updateDoc, query, where, set
 // --- Helper Functions & Initial Data ---
 const DIETARY_OPTIONS = { gf: 'GF', df: 'DF', ve: 'VE', vg: 'VG', nt: 'NT' };
 
-const FOOD_ITEMS = {
-    pizzas: {
-        chickenPizza: 'Chicken Pizza',
-        hawaiianPizza: 'Hawaiian Pizza',
-        kuniPizza: 'Kuni Pizza',
-        margaritaPizza: 'Margarita Pizza',
-        mushroomPizza: 'Mushroom Pizza',
-        peperoniPizza: 'Peperoni Pizza',
-    },
-    snacks: {
-        fries: 'Fries',
-        waffleFries: 'Waffle Fries',
-        hashBites: 'Hash Bites',
-        chickenBites: 'Chicken Bites',
-        cornNuggets: 'Corn Nuggets',
-    }
-};
-
-
 const formatTime = (time24) => {
     if (!time24) return '';
     const [hours, minutes] = time24.split(':');
