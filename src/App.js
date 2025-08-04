@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, onSnapshot, updateDoc, query, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, onSnapshot, updateDoc, query, where, setDoc } from 'firebase/firestore';
 
 // --- Helper Functions & Initial Data ---
 const DIETARY_OPTIONS = { gf: 'GF', df: 'DF', ve: 'VE', vg: 'VG', nt: 'NT' };
@@ -230,7 +230,7 @@ export default function App() {
                         </>
                     ) : (
                         <div className="space-y-4">
-                            {allGroups.map(group => <FlowSummaryCard key={group.id} group={group} />)}
+                            {allGroups.map(group => <FlowSummaryCard key={group.id} group={group} foodItems={foodItems} />)}
                         </div>
                     )}
                 </div>
@@ -308,13 +308,25 @@ const CompletedKitchenCard = ({ group, foodItems }) => {
     );
 };
 
-const FlowSummaryCard = ({ group }) => {
-    const endTime = calculateEndTime(group.time, group.activityBlocks);
-    const activitySummary = (group.activityBlocks || []).map(block => `${formatDuration(block.duration)} ${block.activities.join(' + ')}`).join(' → ');
-    const dietarySummary = Object.entries(group.dietary || {}).filter(([, count]) => count > 0).map(([key, count]) => `${DIETARY_OPTIONS[key]}: ${count}`).join(' <span class="text-gray-600">|</span> ');
+const FlowSummaryCard = ({ group, foodItems }) => {
     const { brief, chkd, food, paid, done } = group.status || {};
     const isFullyComplete = brief && chkd && food && paid && done;
+    const hasFoodPackage = group.package === 'Food' || group.package === 'Food & Drink';
+    const dietarySummary = Object.entries(group.dietary || {}).filter(([, count]) => count > 0);
     const cardClasses = `rounded-2xl shadow-md border p-4 transition-all duration-300 ${isFullyComplete ? 'bg-green-900/40 border-green-700/50' : 'bg-gray-800 border-gray-700'}`;
+    
+    const totalPizzas = Object.keys(foodItems.pizzas || {}).reduce((sum, key) => sum + (group.foodOrder?.[key] || 0), 0);
+    const totalSnacks = Object.keys(foodItems.snacks || {}).reduce((sum, key) => sum + (group.foodOrder?.[key] || 0), 0);
+    const pizzaEstimate = Math.ceil((Number(group.teamSize) || 0) / 2);
+    const snackEstimate = Math.ceil((Number(group.teamSize) || 0) / 2);
+    const endTime = calculateEndTime(group.time, group.activityBlocks);
+    const activitySummary = (group.activityBlocks || []).map(block => `${formatDuration(block.duration)} ${block.activities.join(' + ')}`).join(' → ');
+
+    const PackageBadge = ({ pkg }) => {
+        if (pkg === 'Food') return <span className="text-xs font-bold bg-yellow-500 text-yellow-900 px-2 py-1 rounded-md">{pkg}</span>;
+        if (pkg === 'Food & Drink') return <span className="text-xs font-bold bg-purple-500 text-white px-2 py-1 rounded-md">{pkg}</span>;
+        return <span className="text-xs text-gray-400">{pkg}</span>
+    };
 
     return (
         <div className={cardClasses}>
@@ -327,14 +339,44 @@ const FlowSummaryCard = ({ group }) => {
                     </div>
                     <div className="min-w-0">
                         <span className="font-bold text-xl text-white truncate">{group.teamName}</span>
-                         <div className="flex flex-wrap gap-1 mt-1">{(group.assignedAreas || []).map(area => <span key={area} className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">{area}</span>)}</div>
-                         <p className="text-xs text-gray-400 mt-1">{activitySummary}</p>
-                         {dietarySummary && <p className="text-xs text-amber-400 mt-1" dangerouslySetInnerHTML={{ __html: dietarySummary }}></p>}
+                        <div className="text-xs text-gray-400 flex flex-wrap items-center gap-x-2">
+                            <PackageBadge pkg={group.package} />
+                            {group.assignedTeamMember && <><span className="text-gray-600">|</span><span className="font-semibold text-gray-300">{group.assignedTeamMember}</span></>}
+                        </div>
+                         <p className="text-xs text-gray-400 mt-2">{activitySummary}</p>
+                         <div className="mt-2 text-left flex items-center gap-2">
+                            <h4 className="text-xs text-gray-500 flex-shrink-0">Area</h4>
+                            <div className="flex flex-wrap gap-1">{(group.assignedAreas || []).map(area => <span key={area} className="text-sm font-semibold bg-blue-900/50 text-blue-300 px-2 py-1 rounded">{area}</span>)}</div>
+                        </div>
+                         {dietarySummary.length > 0 && 
+                            <div className="mt-2 text-left">
+                                <div className="flex items-center gap-2">
+                                    <h4 className="text-xs text-gray-500 flex-shrink-0">Dietary</h4>
+                                    <div className="flex flex-wrap gap-2">
+                                        {dietarySummary.map(([key, count]) => <span key={key} className="text-sm font-semibold bg-amber-900/50 text-amber-300 px-2 py-1 rounded">{DIETARY_OPTIONS[key]} {count}</span>)}
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div className="flex items-start gap-4 flex-shrink-0">
+                    {hasFoodPackage && (<div className="flex flex-col gap-2"><div className="bg-gray-700/50 px-3 py-1 rounded-md text-center"><p className="font-bold text-lg">{totalPizzas} / {pizzaEstimate}</p><p className="text-xs text-gray-400">Pizzas</p></div><div className="bg-gray-700/50 px-3 py-1 rounded-md text-center"><p className="font-bold text-lg">{totalSnacks} / {snackEstimate}</p><p className="text-xs text-gray-400">Snacks</p></div></div>)}
+                    <div className="flex flex-col gap-2">
+                        <div className="flex gap-2"><StatusButton label="BRIEF" active={brief}/><StatusButton label="CHECK" active={chkd}/><StatusButton label="FOOD" active={food}/></div>
+                        <div className="flex gap-2"><StatusButton label="PAID" active={paid}/><StatusButton label="DONE" active={done}/></div>
                     </div>
                 </div>
             </div>
         </div>
     );
+};
+
+const StatusButton = ({ label, active }) => {
+    const baseClasses = "w-16 h-10 flex items-center justify-center rounded-md text-xs font-bold transition-all duration-200 leading-tight text-center";
+    const activeClasses = "bg-green-500 text-white shadow-lg";
+    const inactiveClasses = "bg-gray-600 text-gray-300";
+    return <div className={`${baseClasses} ${active ? activeClasses : inactiveClasses}`}>{label}</div>;
 };
 
 const FoodManagementModal = ({ isOpen, onClose, foodItems, onAdd, onDelete }) => {
