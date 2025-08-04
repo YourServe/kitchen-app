@@ -16,6 +16,38 @@ const formatTime = (time24) => {
     return `${h12}:${m < 10 ? '0' : ''}${m} ${ampm}`;
 };
 
+const formatCurrentTime = (date) => {
+    let hours = date.getHours();
+    let minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    minutes = minutes < 10 ? '0'+minutes : minutes;
+    return { time: `${hours}:${minutes}`, ampm: ampm };
+};
+
+const calculateEndTime = (startTime, activityBlocks) => {
+    if (!startTime || !activityBlocks) return '';
+    const totalDuration = activityBlocks.reduce((sum, block) => sum + (block.duration || 0), 0);
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const startDate = new Date();
+    startDate.setHours(hours, minutes, 0, 0);
+    const endDate = new Date(startDate.getTime() + totalDuration * 60000);
+    const endHours = endDate.getHours();
+    const endMinutes = endDate.getMinutes();
+    return `${endHours < 10 ? '0' : ''}${endHours}:${endMinutes < 10 ? '0' : ''}${endMinutes}`;
+};
+
+const formatDuration = (minutes) => {
+    if (!minutes) return '';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    let result = '';
+    if (h > 0) result += `${h}h`;
+    if (m > 0) result += ` ${m}m`;
+    return result.trim();
+};
+
 // --- Icon Components ---
 const PlusCircleIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>);
 const Trash2Icon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>);
@@ -34,14 +66,20 @@ const firebaseConfig = {
 
 // --- Main App Component ---
 export default function App() {
-    const [activeGroups, setActiveGroups] = useState([]);
-    const [completedGroups, setCompletedGroups] = useState([]);
+    const [allGroups, setAllGroups] = useState([]);
     const [foodItems, setFoodItems] = useState({ pizzas: {}, snacks: {} });
+    const [currentTime, setCurrentTime] = useState(new Date());
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
+    const [view, setView] = useState('KITCHEN'); // 'KITCHEN' or 'FLOW'
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     useEffect(() => {
         const initializeFirebase = () => {
@@ -76,39 +114,19 @@ export default function App() {
     useEffect(() => {
         if (!db || !auth?.currentUser) return;
 
-        // Fetch Food Items
         const foodItemsCollectionRef = collection(db, "foodItems");
         const unsubscribeFoodItems = onSnapshot(foodItemsCollectionRef, (snapshot) => {
             const items = { pizzas: {}, snacks: {} };
-            snapshot.forEach(doc => {
-                if (doc.id === 'pizzas' || doc.id === 'snacks') {
-                    items[doc.id] = doc.data();
-                }
-            });
+            snapshot.forEach(doc => { if (doc.id === 'pizzas' || doc.id === 'snacks') items[doc.id] = doc.data(); });
             setFoodItems(items);
         });
 
-        const q = query(collection(db, "groups"), where("package", "in", ["Food", "Food & Drink"]));
+        const q = query(collection(db, "groups"));
         const unsubscribeGroups = onSnapshot(q, (snapshot) => {
             const groupsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
-            const active = [];
-            const completed = [];
-            groupsData.forEach(group => {
-                const { brief, chkd, food, paid, done } = group.status || {};
-                if (brief && chkd && food && paid && done) {
-                    completed.push(group);
-                } else {
-                    active.push(group);
-                }
-            });
-
-            active.sort((a, b) => a.time.localeCompare(b.time));
-            completed.sort((a, b) => a.time.localeCompare(b.time));
-
-            setActiveGroups(active);
-            setCompletedGroups(completed);
-        }, err => console.error("Error fetching food groups:", err));
+            groupsData.sort((a, b) => a.time.localeCompare(b.time));
+            setAllGroups(groupsData);
+        }, err => console.error("Error fetching groups:", err));
 
         return () => { unsubscribeGroups(); unsubscribeFoodItems(); };
     }, [db, auth?.currentUser]);
@@ -135,11 +153,21 @@ export default function App() {
     };
 
     // Calculate totals for header
-    const allGroups = [...activeGroups, ...completedGroups];
     const totalPizzas = allGroups.reduce((sum, group) => sum + Object.keys(foodItems.pizzas).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
     const totalSnacks = allGroups.reduce((sum, group) => sum + Object.keys(foodItems.snacks).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
     const totalPizzaEstimate = allGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
     const totalSnackEstimate = allGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
+    const { time, ampm } = formatCurrentTime(currentTime);
+
+    const kitchenGroups = allGroups.filter(g => g.package === 'Food' || g.package === 'Food & Drink');
+    const activeKitchenGroups = kitchenGroups.filter(g => {
+        const { brief, chkd, food, paid, done } = g.status || {};
+        return !(brief && chkd && food && paid && done);
+    });
+    const completedKitchenGroups = kitchenGroups.filter(g => {
+        const { brief, chkd, food, paid, done } = g.status || {};
+        return brief && chkd && food && paid && done;
+    });
 
     if (error) return (<div className="bg-black text-white min-h-screen flex items-center justify-center font-inter"><div className="bg-red-500 p-8 rounded-lg shadow-2xl text-center"><h2 className="text-2xl font-bold mb-2">Error</h2><p>{error}</p></div></div>);
     if (isLoading) return (<div className="bg-black text-white min-h-screen flex items-center justify-center font-inter"><p>Connecting to Kitchen Service...</p></div>);
@@ -156,7 +184,18 @@ export default function App() {
             <div className="bg-black min-h-screen font-inter text-white p-4 sm:p-6 lg:p-8">
                 <div className="max-w-7xl mx-auto">
                     <header className="flex justify-between items-center mb-6">
-                        <img src="https://images.squarespace-cdn.com/content/v1/6280b73cb41908114afef4a1/5bb4bba5-e8c3-4c38-b672-08c0b4ee1f4c/serve-social.png" alt="Serve Social Logo" className="h-10" />
+                        <div className="flex items-center gap-4">
+                            <img src="https://images.squarespace-cdn.com/content/v1/6280b73cb41908114afef4a1/5bb4bba5-e8c3-4c38-b672-08c0b4ee1f4c/serve-social.png" alt="Serve Social Logo" className="h-10" />
+                            <div className="bg-gray-800 p-1 rounded-lg flex">
+                                <button onClick={() => setView('KITCHEN')} className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'KITCHEN' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>KITCHEN</button>
+                                <button onClick={() => setView('FLOW')} className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'FLOW' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>FLOW</button>
+                            </div>
+                        </div>
+                        <div className="bg-transparent border border-white px-4 py-2 rounded-lg text-center">
+                            <p className="text-3xl font-bold">
+                                {time}<span className="text-lg ml-1">{ampm}</span>
+                            </p>
+                        </div>
                         <div className="flex items-center gap-4">
                             <div className="bg-gray-800 px-4 py-2 rounded-lg text-center">
                                 <p className="text-3xl font-bold">{totalPizzas} / {totalPizzaEstimate}</p>
@@ -169,20 +208,29 @@ export default function App() {
                             <button onClick={() => setIsFoodModalOpen(true)} className="ml-4 bg-gray-700 hover:bg-gray-600 text-white font-bold p-2 rounded-lg"><SettingsIcon className="w-5 h-5"/></button>
                         </div>
                     </header>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {activeGroups.map((group) => (
-                            <KitchenCard key={group.id} group={group} foodItems={foodItems} onUpdateFood={updateFoodOrderItem}/>
-                        ))}
-                        {activeGroups.length === 0 && !isLoading && (
-                            <div className="col-span-full text-center py-16 px-4 bg-gray-900 rounded-lg"><h3 className="text-xl font-semibold text-gray-300">No Active Food Orders</h3><p className="text-gray-500 mt-2">Groups with food packages will appear here automatically.</p></div>
-                        )}
-                    </div>
-                    {completedGroups.length > 0 && (
-                        <div className="mt-12">
-                             <h2 className="text-2xl font-bold tracking-tighter mb-4 pb-2 border-b border-gray-700">Completed Orders</h2>
-                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                {completedGroups.map(group => <CompletedKitchenCard key={group.id} group={group} foodItems={foodItems} />)}
-                             </div>
+                    
+                    {view === 'KITCHEN' ? (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {activeKitchenGroups.map((group) => (
+                                    <KitchenCard key={group.id} group={group} foodItems={foodItems} onUpdateFood={updateFoodOrderItem}/>
+                                ))}
+                                {activeKitchenGroups.length === 0 && !isLoading && (
+                                    <div className="col-span-full text-center py-16 px-4 bg-gray-900 rounded-lg"><h3 className="text-xl font-semibold text-gray-300">No Active Food Orders</h3><p className="text-gray-500 mt-2">Groups with food packages will appear here automatically.</p></div>
+                                )}
+                            </div>
+                            {completedKitchenGroups.length > 0 && (
+                                <div className="mt-12">
+                                     <h2 className="text-2xl font-bold tracking-tighter mb-4 pb-2 border-b border-gray-700">Completed Orders</h2>
+                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                        {completedKitchenGroups.map(group => <CompletedKitchenCard key={group.id} group={group} foodItems={foodItems} />)}
+                                     </div>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <div className="space-y-4">
+                            {allGroups.map(group => <FlowSummaryCard key={group.id} group={group} />)}
                         </div>
                     )}
                 </div>
@@ -194,12 +242,40 @@ export default function App() {
 
 // --- Components ---
 const KitchenCard = ({ group, foodItems, onUpdateFood }) => {
-    const { teamName, teamSize, time, dietary, foodOrder } = group;
-    const dietarySummary = Object.entries(dietary || {}).filter(([, count]) => count > 0).map(([key, count]) => `${DIETARY_OPTIONS[key]}: ${count}`).join(' <span class="text-gray-600">|</span> ');
+    const { teamName, teamSize, time, dietary, foodOrder, assignedAreas, activityBlocks } = group;
+    const dietarySummary = Object.entries(dietary || {}).filter(([, count]) => count > 0);
+    const endTime = calculateEndTime(time, activityBlocks);
+    const activitySummary = (activityBlocks || []).map(block => `${formatDuration(block.duration)} ${block.activities.join(' + ')}`).join(' → ');
 
     return (
         <div className="bg-gray-900 rounded-2xl shadow-lg border border-gray-800 flex flex-col">
-            <div className="p-4 border-b border-gray-800"><div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white flex-grow">{teamName}</h2><div className="flex items-center gap-2"><span className="bg-gray-800 px-3 py-1 rounded-md text-2xl font-bold">{teamSize}</span><span className="font-mono bg-gray-800 px-3 py-1 rounded-md text-lg">{formatTime(time)}</span></div></div>{dietarySummary && <p className="text-base text-amber-400 mt-2 text-center" dangerouslySetInnerHTML={{ __html: dietarySummary }}></p>}</div>
+            <div className="p-4 border-b border-gray-800">
+                <div className="flex justify-between items-center mb-2">
+                    <h2 className="text-2xl font-bold text-white flex-grow">{teamName}</h2>
+                    <div className="flex items-center gap-2">
+                         <div className="bg-blue-600 w-12 h-12 flex items-center justify-center rounded-full text-3xl font-bold">{teamSize}</div>
+                         <div className="bg-gray-800 px-3 py-1 rounded-md text-center">
+                            <div className="text-lg">{formatTime(time)}</div>
+                            <div className="text-xs text-gray-400">to {formatTime(endTime)}</div>
+                         </div>
+                    </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">{activitySummary}</p>
+                <div className="mt-2 text-left flex items-center gap-2">
+                    <h4 className="text-xs text-gray-500 flex-shrink-0">Area</h4>
+                    <div className="flex flex-wrap gap-1">{(assignedAreas || []).map(area => <span key={area} className="text-sm font-semibold bg-blue-900/50 text-blue-300 px-2 py-1 rounded">{area}</span>)}</div>
+                </div>
+                {dietarySummary.length > 0 && 
+                    <div className="mt-2 text-left">
+                        <div className="flex items-center gap-2">
+                            <h4 className="text-xs text-gray-500 flex-shrink-0">Dietary</h4>
+                            <div className="flex flex-wrap gap-2">
+                                {dietarySummary.map(([key, count]) => <span key={key} className="text-sm font-semibold bg-amber-900/50 text-amber-300 px-2 py-1 rounded">{DIETARY_OPTIONS[key]} {count}</span>)}
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
             <div className="p-4 space-y-4 flex-grow">
                 <FoodCategory title="Pizzas" items={foodItems.pizzas} foodOrder={foodOrder} teamSize={teamSize} onUpdateFood={(itemKey, count, op) => onUpdateFood(group.id, itemKey, count, op)} />
                 <FoodCategory title="Snacks" items={foodItems.snacks} foodOrder={foodOrder} teamSize={teamSize} onUpdateFood={(itemKey, count, op) => onUpdateFood(group.id, itemKey, count, op)} />
@@ -229,6 +305,35 @@ const CompletedKitchenCard = ({ group, foodItems }) => {
     let totalSnacks = Object.keys(foodItems.snacks).reduce((sum, key) => sum + (group.foodOrder?.[key] || 0), 0);
     return (
         <div className="bg-green-900/20 rounded-lg p-3 border border-green-700/30"><div className="flex justify-between items-center"><span className="font-bold text-white">{group.teamName}</span><span className="text-sm text-gray-400">{formatTime(group.time)}</span></div><div className="flex justify-around text-center mt-2"><div><p className="font-bold text-lg">{totalPizzas}</p><p className="text-xs text-gray-400">Pizzas</p></div><div><p className="font-bold text-lg">{totalSnacks}</p><p className="text-xs text-gray-400">Snacks</p></div></div></div>
+    );
+};
+
+const FlowSummaryCard = ({ group }) => {
+    const endTime = calculateEndTime(group.time, group.activityBlocks);
+    const activitySummary = (group.activityBlocks || []).map(block => `${formatDuration(block.duration)} ${block.activities.join(' + ')}`).join(' → ');
+    const dietarySummary = Object.entries(group.dietary || {}).filter(([, count]) => count > 0).map(([key, count]) => `${DIETARY_OPTIONS[key]}: ${count}`).join(' <span class="text-gray-600">|</span> ');
+    const { brief, chkd, food, paid, done } = group.status || {};
+    const isFullyComplete = brief && chkd && food && paid && done;
+    const cardClasses = `rounded-2xl shadow-md border p-4 transition-all duration-300 ${isFullyComplete ? 'bg-green-900/40 border-green-700/50' : 'bg-gray-800 border-gray-700'}`;
+
+    return (
+        <div className={cardClasses}>
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+                <div className="flex items-center gap-4 flex-grow min-w-0">
+                    <div className="text-center w-24 flex-shrink-0">
+                        <div className="text-lg">{formatTime(group.time)}</div>
+                        <div className="text-sm text-gray-400">to {formatTime(endTime)}</div>
+                        <div className="text-4xl font-bold text-white mt-1">{group.teamSize}</div>
+                    </div>
+                    <div className="min-w-0">
+                        <span className="font-bold text-xl text-white truncate">{group.teamName}</span>
+                         <div className="flex flex-wrap gap-1 mt-1">{(group.assignedAreas || []).map(area => <span key={area} className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">{area}</span>)}</div>
+                         <p className="text-xs text-gray-400 mt-1">{activitySummary}</p>
+                         {dietarySummary && <p className="text-xs text-amber-400 mt-1" dangerouslySetInnerHTML={{ __html: dietarySummary }}></p>}
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 };
 
