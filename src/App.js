@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, onSnapshot, updateDoc, query, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, onSnapshot, updateDoc, query, where, setDoc } from 'firebase/firestore';
 
 // --- Helper Functions & Initial Data ---
 const DIETARY_OPTIONS = { gf: 'GF', df: 'DF', ve: 'VE', vg: 'VG', nt: 'NT' };
@@ -138,6 +138,11 @@ export default function App() {
         await updateDoc(doc(db, "groups", groupId), { [`foodOrder.${itemKey}`]: newCount });
     };
     
+    const toggleFoodReady = async (groupId, currentStatus) => {
+        if (!db) return;
+        await updateDoc(doc(db, "groups", groupId), { 'status.foodReady': !currentStatus });
+    };
+
     const addFoodItem = async (category, name) => {
         if (!db || !name.trim()) return;
         const key = name.trim().toLowerCase().replace(/\s+/g, '');
@@ -213,7 +218,7 @@ export default function App() {
                         <>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {activeKitchenGroups.map((group) => (
-                                    <KitchenCard key={group.id} group={group} foodItems={foodItems} onUpdateFood={updateFoodOrderItem}/>
+                                    <KitchenCard key={group.id} group={group} foodItems={foodItems} onUpdateFood={updateFoodOrderItem} onToggleFoodReady={toggleFoodReady}/>
                                 ))}
                                 {activeKitchenGroups.length === 0 && !isLoading && (
                                     <div className="col-span-full text-center py-16 px-4 bg-gray-900 rounded-lg"><h3 className="text-xl font-semibold text-gray-300">No Active Food Orders</h3><p className="text-gray-500 mt-2">Groups with food packages will appear here automatically.</p></div>
@@ -241,14 +246,16 @@ export default function App() {
 }
 
 // --- Components ---
-const KitchenCard = ({ group, foodItems, onUpdateFood }) => {
-    const { teamName, teamSize, time, dietary, foodOrder, assignedAreas, activityBlocks } = group;
+const KitchenCard = ({ group, foodItems, onUpdateFood, onToggleFoodReady }) => {
+    const { teamName, teamSize, time, dietary, foodOrder, assignedAreas, activityBlocks, status } = group;
     const dietarySummary = Object.entries(dietary || {}).filter(([, count]) => count > 0);
     const endTime = calculateEndTime(time, activityBlocks);
     const activitySummary = (activityBlocks || []).map(block => `${formatDuration(block.duration)} ${block.activities.join(' + ')}`).join(' → ');
+    const isFoodReady = status?.foodReady || false;
+    const cardBorder = isFoodReady ? 'border-yellow-500 ring-2 ring-yellow-500/50' : 'border-gray-800';
 
     return (
-        <div className="bg-gray-900 rounded-2xl shadow-lg border border-gray-800 flex flex-col">
+        <div className={`bg-gray-900 rounded-2xl shadow-lg border flex flex-col transition-all duration-300 ${cardBorder}`}>
             <div className="p-4 border-b border-gray-800">
                 <div className="flex justify-between items-center mb-2">
                     <h2 className="text-2xl font-bold text-white flex-grow">{teamName}</h2>
@@ -279,6 +286,11 @@ const KitchenCard = ({ group, foodItems, onUpdateFood }) => {
             <div className="p-4 space-y-4 flex-grow">
                 <FoodCategory title="Pizzas" items={foodItems.pizzas} foodOrder={foodOrder} teamSize={teamSize} onUpdateFood={(itemKey, count, op) => onUpdateFood(group.id, itemKey, count, op)} />
                 <FoodCategory title="Snacks" items={foodItems.snacks} foodOrder={foodOrder} teamSize={teamSize} onUpdateFood={(itemKey, count, op) => onUpdateFood(group.id, itemKey, count, op)} />
+            </div>
+            <div className="p-2">
+                <button onClick={() => onToggleFoodReady(group.id, isFoodReady)} className={`w-full font-bold py-3 rounded-lg transition-colors text-lg ${isFoodReady ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}>
+                    {isFoodReady ? 'Food Collected' : 'Food Ready'}
+                </button>
             </div>
         </div>
     );
