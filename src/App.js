@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, onSnapshot, updateDoc, query, where, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, onSnapshot, updateDoc, query, setDoc } from 'firebase/firestore';
 
 // --- Helper Functions & Initial Data ---
 const DIETARY_OPTIONS = { gf: 'GF', df: 'DF', ve: 'VE', vg: 'VG', nt: 'NT' };
@@ -68,7 +68,6 @@ const firebaseConfig = {
 export default function App() {
     const [allGroups, setAllGroups] = useState([]);
     const [foodItems, setFoodItems] = useState({ pizzas: {}, snacks: {} });
-    const [dailyStats, setDailyStats] = useState({ totalPizzas: 0, totalSnacks: 0, totalPizzaEstimate: 0, totalSnackEstimate: 0 });
     const [currentTime, setCurrentTime] = useState(new Date());
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
@@ -131,18 +130,6 @@ export default function App() {
 
         return () => { unsubscribeGroups(); unsubscribeFoodItems(); };
     }, [db, auth?.currentUser]);
-    
-    useEffect(() => {
-        const foodGroups = allGroups.filter(g => g.package === 'Food' || g.package === 'Food & Drink');
-        
-        const totalPizzas = foodGroups.reduce((sum, group) => sum + Object.keys(foodItems.pizzas).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
-        const totalSnacks = foodGroups.reduce((sum, group) => sum + Object.keys(foodItems.snacks).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
-        const totalPizzaEstimate = foodGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
-        const totalSnackEstimate = foodGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
-        
-        setDailyStats({ totalPizzas, totalSnacks, totalPizzaEstimate, totalSnackEstimate });
-    }, [allGroups, foodItems]);
-
 
     // --- Data Manipulation ---
     const updateFoodOrderItem = async (groupId, itemKey, currentCount, operation) => {
@@ -170,14 +157,19 @@ export default function App() {
         await setDoc(docRef, updatedItems);
     };
 
+    // Calculate totals for header
+    const foodGroups = allGroups.filter(g => g.package === 'Food' || g.package === 'Food & Drink');
+    const totalPizzas = foodGroups.reduce((sum, group) => sum + Object.keys(foodItems.pizzas).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
+    const totalSnacks = foodGroups.reduce((sum, group) => sum + Object.keys(foodItems.snacks).reduce((groupSum, key) => groupSum + (group.foodOrder?.[key] || 0), 0), 0);
+    const totalPizzaEstimate = foodGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
+    const totalSnackEstimate = foodGroups.reduce((sum, group) => sum + Math.ceil(group.teamSize / 2), 0);
     const { time, ampm } = formatCurrentTime(currentTime);
 
-    const kitchenGroups = allGroups.filter(g => g.package === 'Food' || g.package === 'Food & Drink');
-    const activeKitchenGroups = kitchenGroups.filter(g => {
+    const activeKitchenGroups = foodGroups.filter(g => {
         const { brief, chkd, food, paid, done } = g.status || {};
         return !(brief && chkd && food && paid && done);
     });
-    const completedKitchenGroups = kitchenGroups.filter(g => {
+    const completedKitchenGroups = foodGroups.filter(g => {
         const { brief, chkd, food, paid, done } = g.status || {};
         return brief && chkd && food && paid && done;
     });
@@ -198,7 +190,7 @@ export default function App() {
                 <div className="max-w-7xl mx-auto">
                     <header className="flex justify-between items-center mb-6">
                         <div className="flex items-center gap-4">
-                            <img src="https://images.squarespace-cdn.com/content/v1/6280b73cb41908114afef4a1/5bb4bba5-e8c3-4c38-b672-08c_0b4ee1f4c/serve-social.png" alt="Serve Social Logo" className="h-10" />
+                            <img src="https://images.squarespace-cdn.com/content/v1/6280b73cb41908114afef4a1/5bb4bba5-e8c3-4c38-b672-08c0b4ee1f4c/serve-social.png" alt="Serve Social Logo" className="h-10" />
                             <div className="bg-gray-800 p-1 rounded-lg flex">
                                 <button onClick={() => setView('KITCHEN')} className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'KITCHEN' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>KITCHEN</button>
                                 <button onClick={() => setView('FLOW')} className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'FLOW' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>FLOW</button>
@@ -211,11 +203,11 @@ export default function App() {
                         </div>
                         <div className="flex items-center gap-4">
                             <div className="bg-gray-800 px-4 py-2 rounded-lg text-center">
-                                <p className="text-3xl font-bold">{dailyStats.totalPizzas} / {dailyStats.totalPizzaEstimate}</p>
+                                <p className="text-3xl font-bold">{totalPizzas} / {totalPizzaEstimate}</p>
                                 <p className="text-xs text-gray-400">Total Pizzas</p>
                             </div>
                             <div className="bg-gray-800 px-4 py-2 rounded-lg text-center">
-                                <p className="text-3xl font-bold">{dailyStats.totalSnacks} / {dailyStats.totalSnackEstimate}</p>
+                                <p className="text-3xl font-bold">{totalSnacks} / {totalSnackEstimate}</p>
                                 <p className="text-xs text-gray-400">Total Snacks</p>
                             </div>
                             <button onClick={() => setIsFoodModalOpen(true)} className="ml-4 bg-gray-700 hover:bg-gray-600 text-white font-bold p-2 rounded-lg"><SettingsIcon className="w-5 h-5"/></button>
