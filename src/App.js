@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, onSnapshot, updateDoc, query, where, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, onSnapshot, updateDoc, query, setDoc } from 'firebase/firestore';
 
 // --- Helper Functions & Initial Data ---
 const DIETARY_OPTIONS = { gf: 'GF', df: 'DF', ve: 'VE', vg: 'VG', nt: 'NT' };
